@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>G2P Transliterator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0d0f11;
+    --surface-1: #151820;
+    --surface-2: #1a1e28;
+    --surface-3: #222736;
+    --border: #2a3040;
+    --border-focus: #4a9eca;
+    --accent: #4a9eca;
+    --accent-glow: #4a9eca33;
+    --text-primary: #e8eaf0;
+    --text-secondary: #a0a8ba;
+    --text-muted: #606878;
+    --error: #e85d75;
+    --vowel: #e85d75;
+    --stop: #4a9eca;
+    --fricative: #6bc488;
+    --nasal: #c9a84c;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    min-height: 100vh;
+    background: var(--bg);
+    font-family: 'DM Sans', 'Helvetica Neue', sans-serif;
+    color: var(--text-primary);
+    /* subtle noise texture */
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  }
+
+  @keyframes chipIn {
+    from { opacity: 0; transform: translateY(6px) scale(0.9); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; } to { opacity: 1; }
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.4; } 50% { opacity: 1; }
+  }
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes dotPulse1 { 0%,100%{opacity:.3} 33%{opacity:1} }
+  @keyframes dotPulse2 { 0%,100%{opacity:.3} 50%{opacity:1} }
+  @keyframes dotPulse3 { 0%,100%{opacity:.3} 66%{opacity:1} }
+
+  /* ── Header ── */
+  .header {
+    padding: 24px 32px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .header-left { display: flex; align-items: center; gap: 14px; }
+  .logo {
+    width: 38px; height: 38px; border-radius: 10px;
+    background: linear-gradient(135deg, #4a9eca 0%, #6bc488 100%);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px; font-weight: 700; color: #0d0f11;
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: -0.5px;
+  }
+  .header h1 {
+    font-size: 20px; font-weight: 600;
+    letter-spacing: -0.3px;
+  }
+  .header .subtitle {
+    font-size: 12px; color: var(--text-muted);
+    margin-top: 2px; letter-spacing: 0.3px;
+  }
+  .status-badge {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 12px; border-radius: 20px;
+    font-size: 12px; font-weight: 500;
+    transition: all 0.3s;
+  }
+  .status-badge.ready {
+    background: #6bc48818; border: 1px solid #6bc48844; color: #6bc488;
+  }
+  .status-badge.loading {
+    background: #c9a84c18; border: 1px solid #c9a84c44; color: #c9a84c;
+  }
+  .status-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+  }
+  .status-badge.ready .status-dot { background: #6bc488; }
+  .status-badge.loading .status-dot { background: #c9a84c; animation: pulse 1s infinite; }
+
+  /* ── Main ── */
+  .main {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 32px 24px;
+  }
+
+  /* ── Labels row ── */
+  .labels {
+    display: grid;
+    grid-template-columns: 1fr 48px 1fr;
+    margin-bottom: 12px;
+    align-items: center;
+  }
+  .label-group {
+    display: flex; align-items: center; gap: 8px; padding: 0 4px;
+  }
+  .label-name {
+    font-size: 13px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 1.2px;
+  }
+  .label-name.src { color: var(--accent); }
+  .label-name.tgt { color: var(--vowel); }
+  .label-hint {
+    font-size: 11px; color: var(--text-muted);
+    font-style: italic; font-family: 'Instrument Serif', serif;
+  }
+
+  /* ── Translator grid ── */
+  .translator {
+    display: grid;
+    grid-template-columns: 1fr 48px 1fr;
+    align-items: stretch;
+  }
+
+  .panel {
+    background: var(--surface-1);
+    border: 1.5px solid var(--border);
+    border-radius: 16px;
+    padding: 20px;
+    min-height: 220px;
+    display: flex;
+    flex-direction: column;
+    transition: border-color 0.3s, box-shadow 0.3s;
+  }
+  .panel:hover {
+    border-color: var(--border-focus);
+    box-shadow: 0 0 0 1px var(--accent-glow), 0 8px 32px rgba(0,0,0,0.3);
+  }
+
+  .panel textarea {
+    flex: 1; background: transparent; border: none;
+    color: var(--text-primary); font-size: 26px; font-weight: 300;
+    font-family: 'DM Sans', sans-serif; resize: none;
+    line-height: 1.4; letter-spacing: -0.5px;
+    outline: none;
+  }
+  .panel textarea::placeholder { color: var(--text-muted); }
+
+  .panel-footer {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-top: 12px; padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+  .panel-footer .meta {
+    font-size: 12px; color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* ── Arrow divider ── */
+  .arrow-col {
+    display: flex; align-items: center; justify-content: center;
+  }
+  .arrow-circle {
+    width: 40px; height: 40px; border-radius: 50%;
+    background: var(--surface-2); border: 1.5px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.4s;
+  }
+  .arrow-circle:hover {
+    background: var(--surface-3); border-color: var(--accent);
+    transform: rotate(180deg);
+  }
+
+  /* ── Output area ── */
+  .output-area {
+    flex: 1; display: flex; flex-direction: column;
+  }
+  .output-placeholder {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    color: var(--text-muted); font-size: 15px; font-style: italic;
+    font-family: 'Instrument Serif', serif; text-align: center; line-height: 1.6;
+  }
+  .output-result {
+    animation: slideUp 0.3s ease;
+  }
+  .phoneme-raw {
+    font-size: 20px; font-weight: 500; color: var(--text-primary);
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 1px; margin-bottom: 18px; line-height: 1.5;
+  }
+  .phoneme-chips {
+    display: flex; flex-wrap: wrap; gap: 6px;
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: 2px;
+    padding: 6px 12px; border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 15px; font-weight: 600; letter-spacing: 0.5px;
+  }
+  .chip sup { font-size: 10px; opacity: 0.7; margin-left: 1px; font-weight: 400; }
+  .chip-separator {
+    display: inline-flex; align-items: center;
+    padding: 6px 4px; color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 18px; font-weight: 300;
+    opacity: 0.4;
+  }
+
+  .loading-dots {
+    display: flex; align-items: center; gap: 8px;
+    color: var(--text-muted); animation: fadeIn 0.2s ease;
+  }
+  .loading-dots .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent);
+  }
+  .loading-dots .dot:nth-child(1) { animation: dotPulse1 1s infinite; }
+  .loading-dots .dot:nth-child(2) { animation: dotPulse2 1s infinite; }
+  .loading-dots .dot:nth-child(3) { animation: dotPulse3 1s infinite; }
+  .loading-dots span {
+    font-size: 14px; font-style: italic;
+    font-family: 'Instrument Serif', serif;
+  }
+
+  .error-msg {
+    color: var(--error); font-size: 14px;
+    animation: fadeIn 0.3s ease;
+    display: flex; align-items: center; gap: 8px;
+  }
+
+  /* ── Buttons ── */
+  .btn {
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 14px;
+    color: var(--text-secondary); font-size: 12px;
+    cursor: pointer; font-family: 'DM Sans', sans-serif;
+    font-weight: 500; transition: all 0.2s;
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .btn:hover { background: var(--surface-3); border-color: var(--accent); color: var(--text-primary); }
+  .btn.copied { background: #6bc48818; border-color: #6bc48844; color: #6bc488; }
+
+  /* ── Legend ── */
+  .legend {
+    display: flex; justify-content: center; gap: 24px;
+    margin-top: 20px; flex-wrap: wrap;
+  }
+  .legend-item {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; color: var(--text-muted); letter-spacing: 0.5px;
+  }
+  .legend-dot { width: 8px; height: 8px; border-radius: 2px; }
+
+  /* ── History ── */
+  .history { margin-top: 36px; animation: fadeIn 0.4s ease; }
+  .history-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .history-header h3 {
+    font-size: 12px; font-weight: 600; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 1.5px;
+  }
+  .history-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 8px;
+  }
+  .history-item {
+    display: flex; align-items: center; justify-content: space-between;
+    width: 100%; padding: 10px 14px;
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 8px; cursor: pointer; transition: all 0.2s;
+    text-align: left; font-family: inherit;
+    color: inherit;
+  }
+  .history-item:hover { background: var(--surface-3); border-color: var(--accent); }
+  .history-item .hw { font-size: 14px; font-weight: 500; }
+  .history-item .hp {
+    color: var(--text-muted); font-size: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  /* ── Footer info ── */
+  .info-footer {
+    margin-top: 48px; padding: 20px;
+    background: var(--surface-1); border-radius: 12px;
+    border: 1px solid var(--border);
+  }
+  .info-footer p {
+    font-size: 12px; color: var(--text-muted);
+    line-height: 1.8; max-width: 700px;
+  }
+  .info-footer strong { color: var(--text-secondary); font-weight: 600; }
+
+  /* ── Responsive ── */
+  @media (max-width: 700px) {
+    .translator { grid-template-columns: 1fr; gap: 0; }
+    .labels     { grid-template-columns: 1fr; gap: 8px; }
+    .arrow-col  { padding: 12px 0; }
+    .arrow-circle { transform: rotate(90deg); }
+    .panel textarea { font-size: 22px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header class="header">
+  <div class="header-left">
+    <div class="logo">G2P</div>
+    <div>
+      <h1>Transliterator</h1>
+      <p class="subtitle">Transformer · Grapheme-to-Phoneme</p>
+    </div>
+  </div>
+  <div id="statusBadge" class="status-badge ready">
+    <div class="status-dot"></div>
+    <span id="statusText">Ready</span>
+  </div>
+</header>
+
+<main class="main">
+  <!-- Labels -->
+  <div class="labels">
+    <div class="label-group">
+      <span class="label-name src">English</span>
+      <span class="label-hint">graphemes</span>
+    </div>
+    <div></div>
+    <div class="label-group">
+      <span class="label-name tgt">ARPAbet</span>
+      <span class="label-hint">phonemes</span>
+    </div>
+  </div>
+
+  <!-- Translator -->
+  <div class="translator">
+    <!-- Input panel -->
+    <div class="panel">
+      <textarea id="inputText" placeholder="Type a word or sentence..." rows="4"></textarea>
+      <div class="panel-footer">
+        <span class="meta" id="charCount"></span>
+        <button class="btn" id="clearBtn" style="display:none" onclick="handleClear()">Clear</button>
+      </div>
+    </div>
+
+    <!-- Arrow -->
+    <div class="arrow-col">
+      <div class="arrow-circle">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M5 12h14M12 5l7 7-7 7"/>
+        </svg>
+      </div>
+    </div>
+
+    <!-- Output panel -->
+    <div class="panel">
+      <div class="output-area" id="outputArea">
+        <div class="output-placeholder">
+          Phonetic transcription<br>will appear here
+        </div>
+      </div>
+      <div class="panel-footer">
+        <span class="meta" id="phonemeCount"></span>
+        <button class="btn" id="copyBtn" style="display:none" onclick="handleCopy()">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+          Copy
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Legend -->
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:var(--vowel)"></div> Vowels</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--stop)"></div> Stops</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--fricative)"></div> Fricatives</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--nasal)"></div> Nasals &amp; Liquids</div>
+  </div>
+
+  <!-- History -->
+  <div class="history" id="historySection" style="display:none">
+    <div class="history-header">
+      <h3>Recent</h3>
+      <button class="btn" onclick="clearHistory()" style="background:none;border:none;padding:4px 8px">Clear all</button>
+    </div>
+    <div class="history-grid" id="historyGrid"></div>
+  </div>
+
+  <!-- Footer -->
+  <div class="info-footer">
+    <p>
+      <strong>How it works: </strong>
+      Custom Transformer encoder-decoder trained on CMUdict. Encodes input characters (graphemes),
+      then autoregressively decodes ARPAbet phonemes. Architecture: 4 layers, 8 heads, 256-dim embeddings.
+    </p>
+  </div>
+</main>
+
+<script>
+// ── Phoneme color categories ──
+const VOWELS = new Set(['AA','AE','AH','AO','AW','AY','EH','ER','EY','IH','IY','OW','OY','UH','UW']);
+const STOPS = new Set(['B','D','G','K','P','T']);
+const FRICATIVES = new Set(['CH','DH','F','HH','JH','S','SH','TH','V','Z','ZH']);
+// everything else → nasal/liquid
+
+function phonemeBase(ph) { return ph.replace(/[0-2]/g, ''); }
+function stressLevel(ph) { const m = ph.match(/([0-2])$/); return m ? m[1] : null; }
+
+function phonemeColor(ph) {
+  const b = phonemeBase(ph);
+  if (VOWELS.has(b))    return 'var(--vowel)';
+  if (STOPS.has(b))     return 'var(--stop)';
+  if (FRICATIVES.has(b)) return 'var(--fricative)';
+  return 'var(--nasal)';
+}
+
+// ── State ──
+let debounceTimer = null;
+let currentPhonemes = '';
+const history = [];
+
+const inputEl       = document.getElementById('inputText');
+const outputArea     = document.getElementById('outputArea');
+const charCountEl    = document.getElementById('charCount');
+const phonemeCountEl = document.getElementById('phonemeCount');
+const clearBtn       = document.getElementById('clearBtn');
+const copyBtn        = document.getElementById('copyBtn');
+const statusBadge    = document.getElementById('statusBadge');
+const statusText     = document.getElementById('statusText');
+const historySection = document.getElementById('historySection');
+const historyGrid    = document.getElementById('historyGrid');
+
+// ── Input handling ──
+inputEl.addEventListener('input', () => {
+  const val = inputEl.value.trim();
+  charCountEl.textContent = val.length > 0 ? `${val.length} chars` : '';
+  clearBtn.style.display = val.length > 0 ? '' : 'none';
+
+  clearTimeout(debounceTimer);
+  if (val.length > 0) {
+    debounceTimer = setTimeout(() => doTransliterate(val), 600);
+  } else {
+    showPlaceholder();
+  }
+});
+
+inputEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    clearTimeout(debounceTimer);
+    const val = inputEl.value.trim();
+    if (val) doTransliterate(val);
+  }
+});
+
+// ── API call ──
+async function doTransliterate(text) {
+  setLoading(true);
+  try {
+    const res = await fetch('/transliterate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text })
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    currentPhonemes = data.phonemes;
+    renderResult(data);
+    addHistory(text, data.phonemes);
+  } catch (err) {
+    renderError('Ошибка соединения с сервером');
+    console.error(err);
+  } finally {
+    setLoading(false);
+  }
+}
+
+// ── Rendering ──
+function setLoading(on) {
+  statusBadge.className = `status-badge ${on ? 'loading' : 'ready'}`;
+  statusText.textContent = on ? 'Processing' : 'Ready';
+  if (on) {
+    outputArea.innerHTML = `
+      <div class="loading-dots">
+        <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+        <span>decoding...</span>
+      </div>`;
+    phonemeCountEl.textContent = '';
+    copyBtn.style.display = 'none';
+  }
+}
+
+function showPlaceholder() {
+  outputArea.innerHTML = `<div class="output-placeholder">Phonetic transcription<br>will appear here</div>`;
+  phonemeCountEl.textContent = '';
+  copyBtn.style.display = 'none';
+  currentPhonemes = '';
+}
+
+function renderResult(data) {
+  const allPhonemes = data.phonemes.split(' | ');
+  // Каждая группа — слово
+  let chipsHTML = '';
+  let chipIndex = 0;
+
+  data.words.forEach((w, wi) => {
+    if (wi > 0) {
+      chipsHTML += `<span class="chip-separator">|</span>`;
+    }
+    w.phonemes.split(' ').forEach((ph) => {
+      const color = phonemeColor(ph);
+      const base = phonemeBase(ph);
+      const stress = stressLevel(ph);
+      const delay = chipIndex * 0.05;
+      chipsHTML += `<span class="chip" style="background:${color}18;border:1.5px solid ${color}44;color:${color};animation:chipIn 0.3s ease-out ${delay}s both">${base}${stress !== null ? `<sup>${stress}</sup>` : ''}</span>`;
+      chipIndex++;
+    });
+  });
+
+  outputArea.innerHTML = `
+    <div class="output-result">
+      <div class="phoneme-raw">/${data.phonemes}/</div>
+      <div class="phoneme-chips">${chipsHTML}</div>
+    </div>`;
+
+  const totalPhonemes = data.words.reduce((s, w) => s + w.phonemes.split(' ').length, 0);
+  phonemeCountEl.textContent = `${totalPhonemes} phonemes`;
+  copyBtn.style.display = '';
+}
+
+function renderError(msg) {
+  outputArea.innerHTML = `
+    <div class="error-msg">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+      ${msg}
+    </div>`;
+  phonemeCountEl.textContent = '';
+  copyBtn.style.display = 'none';
+}
+
+// ── Copy ──
+function handleCopy() {
+  if (!currentPhonemes) return;
+  navigator.clipboard.writeText(currentPhonemes);
+  copyBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg> Copied`;
+  copyBtn.classList.add('copied');
+  setTimeout(() => {
+    copyBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg> Copy`;
+    copyBtn.classList.remove('copied');
+  }, 1500);
+}
+
+// ── Clear ──
+function handleClear() {
+  inputEl.value = '';
+  charCountEl.textContent = '';
+  clearBtn.style.display = 'none';
+  showPlaceholder();
+  inputEl.focus();
+}
+
+// ── History ──
+function addHistory(text, phonemes) {
+  const idx = history.findIndex(h => h.text === text);
+  if (idx !== -1) history.splice(idx, 1);
+  history.unshift({ text, phonemes });
+  if (history.length > 12) history.pop();
+  renderHistory();
+}
+
+function clearHistory() {
+  history.length = 0;
+  renderHistory();
+}
+
+function renderHistory() {
+  if (history.length === 0) {
+    historySection.style.display = 'none';
+    return;
+  }
+  historySection.style.display = '';
+  historyGrid.innerHTML = history.map(h => `
+    <button class="history-item" onclick="replayHistory('${h.text.replace(/'/g, "\\'")}')">
+      <span class="hw">${h.text}</span>
+      <span class="hp">${h.phonemes}</span>
+    </button>`).join('');
+}
+
+function replayHistory(text) {
+  inputEl.value = text;
+  charCountEl.textContent = `${text.length} chars`;
+  clearBtn.style.display = '';
+  doTransliterate(text);
+}
+
+// ── Init ──
+inputEl.focus();
+</script>
+</body>
+</html>
