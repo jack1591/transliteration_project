@@ -79,6 +79,7 @@ pip install -r requirements.txt
 ### 2. Веса модели
 
 Скачайте файл `transliteration_model_weights.pth` и положите в корень проекта. Файл не включён в репозиторий из-за размера.
+https://disk.yandex.ru/d/fZi7IuV_kP9tIA
 
 ### 3. Запуск сервера
 
